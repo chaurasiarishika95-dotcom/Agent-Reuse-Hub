@@ -3,6 +3,7 @@ import {
   getCustom, saveCustom, storeReady, getSettings, saveSettings,
   getStats, recentFeedback, recentAnalyses
 } from "../lib/store.js";
+import { catalogStatus, syncCatalogStep } from "../lib/mcpregistry.js";
 
 const clean = (s, n = 300) => String(s ?? "").trim().slice(0, n);
 const okUrl = s => { s = clean(s, 500); return /^https?:\/\//i.test(s) ? s : ""; };
@@ -33,10 +34,11 @@ export default async function handler(req, res) {
     const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
     switch (body.action) {
       case "list": {
-        const [items, settings, stats, feedback, analyses] = await Promise.all([
-          getCustom(), getSettings(), getStats(), recentFeedback(15), recentAnalyses(15)
+        const [items, settings, stats, feedback, analyses, mcp] = await Promise.all([
+          getCustom(), getSettings(), getStats(), recentFeedback(15), recentAnalyses(15),
+          catalogStatus().catch(() => null)
         ]);
-        return res.status(200).json({ items, storeReady: storeReady(), settings, stats, feedback, analyses });
+        return res.status(200).json({ items, storeReady: storeReady(), settings, stats, feedback, analyses, mcp });
       }
       case "autofill":
         return res.status(200).json({ draft: await autofill({ url: body.url, notes: body.notes }) });
@@ -59,6 +61,8 @@ export default async function handler(req, res) {
         const settings = await saveSettings({ demoData: body.settings?.demoData !== false });
         return res.status(200).json({ settings });
       }
+      case "syncMcp":
+        return res.status(200).json(await syncCatalogStep({ restart: !!body.restart }));
       default:
         return res.status(400).json({ error: "Unknown action." });
     }
