@@ -1,72 +1,250 @@
-import { autofill } from "../lib/autofill.js";
-import {
-  getCustom, saveCustom, storeReady, getSettings, saveSettings,
-  getStats, recentFeedback, recentAnalyses
-} from "../lib/store.js";
-import { catalogStatus, syncCatalogStep } from "../lib/mcpregistry.js";
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Admin · Agent Reuse Hub</title>
+<style>
+:root{--bg:#0f1117;--panel:#171a23;--line:#262b38;--text:#e8eaf0;--muted:#9aa1b2;--accent:#5b8cff;--good:#33c48d;--bad:#ff6b6b;--warn:#f0b44c}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+.wrap{max-width:820px;margin:0 auto;padding:24px 20px 60px}
+nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}
+nav a{color:var(--muted);text-decoration:none;margin-left:16px;font-size:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+h2{margin:0 0 12px;font-size:19px}
+h4{margin:16px 0 4px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 5px}
+input,textarea,select{width:100%;background:#11141c;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:15px;font-family:inherit}
+textarea{min-height:70px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:10px 18px;font-size:15px;cursor:pointer;margin-top:14px}
+.btn:disabled{opacity:.6;cursor:wait}
+.ghost{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
+.danger{color:var(--bad)}
+.check{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;color:var(--text)}
+.check input{width:auto}
+.meta{color:var(--muted);font-size:13px}
+.error{color:var(--bad)}
+.ok{color:var(--good)}
+.msg{margin-top:10px;font-size:14px}
+.hidden{display:none}
+.item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.actions{display:flex;gap:8px;flex-shrink:0}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(91,140,255,.18);color:var(--accent)}
+.setup{border-color:rgba(240,180,76,.4);color:var(--warn)}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.big div{background:#11141c;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.big b{display:block;font-size:22px}
+@media (max-width:600px){.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><b>Admin</b><div><a href="/">Analyzer</a><a href="/registry.html">Registry</a><a href="#" id="logout">Log out</a></div></nav>
 
-const clean = (s, n = 300) => String(s ?? "").trim().slice(0, n);
-const okUrl = s => { s = clean(s, 500); return /^https?:\/\//i.test(s) ? s : ""; };
-const slug = s => clean(s, 60).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  <div class="card" id="login">
+    <h2>Enter admin password</h2>
+    <input type="password" id="pw" placeholder="Password">
+    <button class="btn" id="loginBtn">Open admin</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
 
-function normalize(a) {
-  const tags = (Array.isArray(a.tags) ? a.tags : String(a.tags || "").split(","))
-    .map(slug).filter(Boolean).slice(0, 10);
-  return {
-    id: /^c-/.test(a.id || "") ? clean(a.id, 80) : `c-${slug(a.name) || "item"}-${Math.random().toString(36).slice(2, 6)}`,
-    name: clean(a.name, 80), team: clean(a.team, 60) || "Personal Projects",
-    location: clean(a.location, 60) || "Remote", owner: clean(a.owner, 60) || "Me",
-    status: clean(a.status, 20) || "Live", description: clean(a.description, 600), tags,
-    impact: clean(a.impact, 200),
-    hoursSavedPerMonth: Math.max(0, Math.min(100000, Number(a.hoursSavedPerMonth) || 0)),
-    builtByMe: a.builtByMe !== false, repo: okUrl(a.repo), demo: okUrl(a.demo),
-    updatedAt: new Date().toISOString()
-  };
+  <div id="main" class="hidden">
+    <div class="card setup hidden" id="setup">Storage isn't connected yet, so saving won't work. In Vercel, open <b>Storage</b>, create an <b>Upstash for Redis</b> database, connect it to this project, then redeploy.</div>
+
+    <div class="card">
+      <h2>Public MCP catalog</h2>
+      <p class="meta" id="mcpInfo">Checking…</p>
+      <button class="btn" id="mcpSync">Sync MCP Registry now</button>
+      <div class="msg" id="mcpMsg"></div>
+      <p class="meta" style="margin-top:10px">Copies the official MCP Registry into your database, so search is instant and also matches descriptions. Run it once now, then about once a week.</p>
+    </div>
+
+    <div class="card">
+      <h2>Real usage</h2>
+      <div class="big" id="usage"></div>
+      <h4>Latest feedback</h4><div id="fbList"></div>
+      <h4>Latest analyses</h4><div id="anList"></div>
+    </div>
+
+    <div class="card">
+      <h2>Settings</h2>
+      <label class="check"><input type="checkbox" id="s_demo"> Show demo data (fictional SwiftRoute Logistics company)</label>
+      <p class="meta">Turn this off once you've added enough real entries. Your own entries always stay.</p>
+      <button class="btn" id="s_save">Save settings</button>
+      <div class="msg" id="s_msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>1. Paste a link</h2>
+      <label for="a_url">Website or GitHub link</label>
+      <input id="a_url" placeholder="https://github.com/you/project  or  https://your-app.vercel.app">
+      <label for="a_notes">Notes (optional)</label>
+      <textarea id="a_notes" placeholder="Anything the page doesn't say, e.g. who uses it or what result it achieved"></textarea>
+      <button class="btn" id="fillBtn">Read and auto-fill</button>
+      <div class="msg" id="fillMsg"></div>
+    </div>
+
+    <div class="card" id="formCard">
+      <h2 id="formTitle">2. Check the details and save</h2>
+      <input type="hidden" id="f_id">
+      <label for="f_name">Name</label><input id="f_name">
+      <label for="f_description">Description</label><textarea id="f_description"></textarea>
+      <div class="two">
+        <div><label for="f_team">Team / function</label><input id="f_team" placeholder="e.g. Customer Support"></div>
+        <div><label for="f_location">Location</label><input id="f_location" placeholder="e.g. Delhi"></div>
+        <div><label for="f_owner">Owner</label><input id="f_owner" placeholder="Your name"></div>
+        <div><label for="f_status">Status</label>
+          <select id="f_status"><option>Live</option><option>Pilot</option><option>Prototype</option></select></div>
+      </div>
+      <label for="f_tags">Tags (comma separated)</label><input id="f_tags" placeholder="customer-queries, chat-support, faq">
+      <label for="f_impact">Impact</label><input id="f_impact" placeholder="e.g. Answers common questions instantly">
+      <div class="two">
+        <div><label for="f_repo">GitHub link</label><input id="f_repo"></div>
+        <div><label for="f_demo">Live app link</label><input id="f_demo"></div>
+      </div>
+      <label for="f_hoursSavedPerMonth">Hours saved per month (optional)</label><input id="f_hoursSavedPerMonth" type="number" min="0">
+      <label class="check"><input type="checkbox" id="f_builtByMe" checked> Show "Built by me" badge</label>
+      <button class="btn" id="saveBtn">Save</button> <button class="ghost" id="clearBtn">Clear form</button>
+      <div class="msg" id="saveMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your entries (<span id="count">0</span>)</h2>
+      <div id="list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const when = t => { try { return t ? new Date(t).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : ""; } catch { return ""; } };
+const F = ["id","name","description","team","location","owner","status","tags","impact","hoursSavedPerMonth","repo","demo"];
+let PW = sessionStorage.getItem("hubpw") || "", ITEMS = [], MCP = null;
+
+async function api(action, data = {}) {
+  const r = await fetch("/api/admin", { method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-password": PW },
+    body: JSON.stringify({ action, ...data }) });
+  const d = await r.json().catch(() => ({ error: "Unexpected server reply. Please try again." }));
+  if (!r.ok) throw new Error(d.error || "Something went wrong.");
+  return d;
+}
+function msg(sel, text, isErr) { $(sel).innerHTML = text ? `<span class="${isErr ? "error" : "ok"}">${esc(text)}</span>` : ""; }
+function setForm(a = {}) {
+  F.forEach(k => { let v = a[k] ?? ""; if (k === "tags" && Array.isArray(v)) v = v.join(", "); if (k === "status" && !v) v = "Live"; $("#f_" + k).value = v; });
+  $("#f_builtByMe").checked = a.builtByMe !== false;
+  $("#formTitle").textContent = a.id ? "Edit entry" : "2. Check the details and save";
+}
+function getForm() { const a = {}; F.forEach(k => a[k] = $("#f_" + k).value); a.builtByMe = $("#f_builtByMe").checked; return a; }
+const keepWho = () => ({ location: $("#f_location").value, owner: $("#f_owner").value });
+
+function renderMcp(m) {
+  MCP = m;
+  $("#mcpInfo").textContent = m && m.count
+    ? `${m.count.toLocaleString("en-IN")} public servers synced · last sync ${when(m.syncedAt)}${m.inProgress ? " · a sync is partly done" : ""}`
+    : (m && m.inProgress ? "A sync is partly done. Click the button to continue." : "Not synced yet. Search falls back to the live registry, which can be slow.");
 }
 
-export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
-  const pass = process.env.ADMIN_PASSWORD;
-  if (!pass) return res.status(500).json({ error: "ADMIN_PASSWORD is not set in Vercel." });
-  if (req.headers["x-admin-password"] !== pass) return res.status(401).json({ error: "Wrong password." });
+function renderUsage(d) {
+  const s = d.stats || {};
+  $("#usage").innerHTML = [
+    [s.analyses || 0, "Apps analyzed"], [s.up || 0, "👍 Useful"], [s.down || 0, "👎 Not useful"],
+    [s.usefulPct === null || s.usefulPct === undefined ? "–" : s.usefulPct + "%", "Rated useful"]
+  ].map(([n, l]) => `<div><b>${n}</b><span class="meta">${l}</span></div>`).join("");
+  $("#fbList").innerHTML = (d.feedback || []).map(f => `<div class="item"><div>${f.vote === "up" ? "👍" : "👎"} ${esc(f.title)}
+    <div class="meta">${esc(f.app)} · ${esc(when(f.at))}</div></div></div>`).join("") || '<p class="meta">No feedback yet.</p>';
+  $("#anList").innerHTML = (d.analyses || []).map(a => `<div class="item"><div>${esc(a.title || a.url || "Described app")}
+    <div class="meta">${a.url ? esc(a.url) + " · " : ""}${esc(when(a.at))}</div></div></div>`).join("") || '<p class="meta">No analyses yet.</p>';
+}
 
+async function login() {
+  if ($("#pw").value) PW = $("#pw").value;
   try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
-    switch (body.action) {
-      case "list": {
-        const [items, settings, stats, feedback, analyses, mcp] = await Promise.all([
-          getCustom(), getSettings(), getStats(), recentFeedback(15), recentAnalyses(15),
-          catalogStatus().catch(() => null)
-        ]);
-        return res.status(200).json({ items, storeReady: storeReady(), settings, stats, feedback, analyses, mcp });
-      }
-      case "autofill":
-        return res.status(200).json({ draft: await autofill({ url: body.url, notes: body.notes }) });
-      case "save": {
-        const item = normalize(body.item || {});
-        if (!item.name || !item.description) return res.status(400).json({ error: "Name and description are required." });
-        const list = await getCustom();
-        const i = list.findIndex(x => x.id === item.id);
-        if (i >= 0) list[i] = item; else list.push(item);
-        if (list.length > 200) return res.status(400).json({ error: "Limit of 200 entries reached." });
-        await saveCustom(list);
-        return res.status(200).json({ item, items: list });
-      }
-      case "delete": {
-        const list = (await getCustom()).filter(x => x.id !== body.id);
-        await saveCustom(list);
-        return res.status(200).json({ items: list });
-      }
-      case "saveSettings": {
-        const settings = await saveSettings({ demoData: body.settings?.demoData !== false });
-        return res.status(200).json({ settings });
-      }
-      case "syncMcp":
-        return res.status(200).json(await syncCatalogStep({ restart: !!body.restart }));
-      default:
-        return res.status(400).json({ error: "Unknown action." });
-    }
-  } catch (e) {
-    return res.status(e.status || 500).json({ error: e.message || "Something went wrong." });
-  }
+    const d = await api("list");
+    sessionStorage.setItem("hubpw", PW);
+    $("#login").classList.add("hidden"); $("#main").classList.remove("hidden");
+    $("#setup").classList.toggle("hidden", d.storeReady);
+    $("#s_demo").checked = d.settings?.demoData !== false;
+    ITEMS = d.items; renderList(); renderUsage(d); renderMcp(d.mcp);
+  } catch (e) { sessionStorage.removeItem("hubpw"); msg("#loginMsg", e.message, true); }
 }
+$("#loginBtn").onclick = login;
+$("#pw").onkeydown = e => { if (e.key === "Enter") login(); };
+if (PW) login();
+$("#logout").onclick = e => { e.preventDefault(); sessionStorage.removeItem("hubpw"); location.reload(); };
+
+$("#mcpSync").onclick = async () => {
+  $("#mcpSync").disabled = true;
+  let restart = !(MCP && MCP.inProgress), got = 0;
+  try {
+    for (let i = 0; i < 40; i++) {
+      msg("#mcpMsg", `Syncing… ${got ? got.toLocaleString("en-IN") + " servers collected so far. Keep this page open." : "this takes a minute or two. Keep this page open."}`);
+      const d = await api("syncMcp", { restart });
+      restart = false; got = d.collected;
+      renderMcp(d);
+      if (d.done) { msg("#mcpMsg", `Done. ${d.count.toLocaleString("en-IN")} public MCP servers are now searchable.`); return; }
+    }
+    msg("#mcpMsg", "Paused after many steps. Click the button again to continue.", true);
+  } catch (e) { msg("#mcpMsg", e.message + " Click the button again to resume.", true); }
+  finally { $("#mcpSync").disabled = false; }
+};
+
+$("#s_save").onclick = async () => {
+  try {
+    const d = await api("saveSettings", { settings: { demoData: $("#s_demo").checked } });
+    msg("#s_msg", d.settings.demoData ? "Saved. Demo data is visible." : "Saved. Demo data is hidden; only real entries show now.");
+  } catch (e) { msg("#s_msg", e.message, true); }
+};
+
+$("#fillBtn").onclick = async () => {
+  const url = $("#a_url").value.trim(), notes = $("#a_notes").value.trim();
+  if (!url && !notes) return msg("#fillMsg", "Paste a link or write a few notes first.", true);
+  $("#fillBtn").disabled = true; msg("#fillMsg", "Reading the app and filling in details… this takes 10–30 seconds.");
+  try {
+    const d = await api("autofill", { url, notes });
+    setForm({ ...d.draft, ...keepWho() });
+    msg("#fillMsg", "Done. Check the details below, edit anything, then click Save.");
+    $("#formCard").scrollIntoView({ behavior: "smooth" });
+  } catch (e) { msg("#fillMsg", e.message, true); }
+  finally { $("#fillBtn").disabled = false; }
+};
+
+$("#saveBtn").onclick = async () => {
+  const a = getForm();
+  a.tags = a.tags.split(",").map(t => t.trim()).filter(Boolean);
+  $("#saveBtn").disabled = true;
+  try {
+    const d = await api("save", { item: a });
+    ITEMS = d.items; renderList();
+    setForm(keepWho()); $("#a_url").value = ""; $("#a_notes").value = ""; msg("#fillMsg", "");
+    msg("#saveMsg", `Saved "${d.item.name}". It's live on your site now.`);
+  } catch (e) { msg("#saveMsg", e.message, true); }
+  finally { $("#saveBtn").disabled = false; }
+};
+$("#clearBtn").onclick = () => { setForm(keepWho()); msg("#saveMsg", ""); };
+
+function renderList() {
+  $("#count").textContent = ITEMS.length;
+  $("#list").innerHTML = ITEMS.length ? ITEMS.map(a => `<div class="item">
+    <div><b>${esc(a.name)}</b> ${a.builtByMe ? '<span class="badge">Built by me</span>' : ""}
+      <div class="meta">${esc(a.team)} · ${esc(a.location)} · ${esc((a.tags || []).join(", "))}</div></div>
+    <div class="actions"><button class="ghost" data-edit="${esc(a.id)}">Edit</button><button class="ghost danger" data-del="${esc(a.id)}">Delete</button></div>
+  </div>`).join("") : '<p class="meta">Nothing added yet. Paste your first link above.</p>';
+}
+$("#list").onclick = async e => {
+  const ed = e.target.dataset.edit, del = e.target.dataset.del;
+  if (ed) { setForm(ITEMS.find(x => x.id === ed)); $("#formCard").scrollIntoView({ behavior: "smooth" }); msg("#saveMsg", ""); }
+  if (del) {
+    const it = ITEMS.find(x => x.id === del);
+    if (!confirm(`Delete "${it?.name}"?`)) return;
+    try { const d = await api("delete", { id: del }); ITEMS = d.items; renderList(); } catch (err) { alert(err.message); }
+  }
+};
+</script>
+</body>
+</html>
