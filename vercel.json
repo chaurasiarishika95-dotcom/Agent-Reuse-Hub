@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/analyze.js": { "maxDuration": 60 },
+    "api/mcp.js": { "maxDuration": 60 },
+    "api/admin.js": { "maxDuration": 60 }
+  }
+}

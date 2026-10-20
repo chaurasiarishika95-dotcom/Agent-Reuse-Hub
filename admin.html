@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Admin · Agent Reuse Hub</title>
+<style>
+:root{--bg:#0f1117;--panel:#171a23;--line:#262b38;--text:#e8eaf0;--muted:#9aa1b2;--accent:#5b8cff;--good:#33c48d;--bad:#ff6b6b;--warn:#f0b44c}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+.wrap{max-width:820px;margin:0 auto;padding:24px 20px 60px}
+nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}
+nav a{color:var(--muted);text-decoration:none;margin-left:16px;font-size:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+h2{margin:0 0 12px;font-size:19px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 5px}
+input,textarea,select{width:100%;background:#11141c;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:15px;font-family:inherit}
+textarea{min-height:70px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:10px 18px;font-size:15px;cursor:pointer;margin-top:14px}
+.btn:disabled{opacity:.6;cursor:wait}
+.ghost{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
+.danger{color:var(--bad)}
+.check{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px}
+.check input{width:auto}
+.meta{color:var(--muted);font-size:13px}
+.error{color:var(--bad)}
+.ok{color:var(--good)}
+.msg{margin-top:10px;font-size:14px}
+.hidden{display:none}
+.item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.actions{display:flex;gap:8px;flex-shrink:0}
+.badge{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(91,140,255,.18);color:var(--accent)}
+.setup{border-color:rgba(240,180,76,.4);color:var(--warn)}
+@media (max-width:600px){.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><b>Admin</b><div><a href="/">Analyzer</a><a href="/registry.html">Registry</a><a href="#" id="logout">Log out</a></div></nav>
+
+  <div class="card" id="login">
+    <h2>Enter admin password</h2>
+    <input type="password" id="pw" placeholder="Password">
+    <button class="btn" id="loginBtn">Open admin</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="main" class="hidden">
+    <div class="card setup hidden" id="setup">Storage isn't connected yet, so saving won't work. In Vercel, open <b>Storage</b>, create an <b>Upstash for Redis</b> database, connect it to this project, then redeploy.</div>
+
+    <div class="card">
+      <h2>1. Paste a link</h2>
+      <label for="a_url">Website or GitHub link</label>
+      <input id="a_url" placeholder="https://github.com/you/project  or  https://your-app.vercel.app">
+      <label for="a_notes">Notes (optional)</label>
+      <textarea id="a_notes" placeholder="Anything the page doesn't say, e.g. who uses it or what result it achieved"></textarea>
+      <button class="btn" id="fillBtn">Read and auto-fill</button>
+      <div class="msg" id="fillMsg"></div>
+    </div>
+
+    <div class="card" id="formCard">
+      <h2 id="formTitle">2. Check the details and save</h2>
+      <input type="hidden" id="f_id">
+      <label for="f_name">Name</label><input id="f_name">
+      <label for="f_description">Description</label><textarea id="f_description"></textarea>
+      <div class="two">
+        <div><label for="f_team">Team / function</label><input id="f_team" placeholder="e.g. Customer Support"></div>
+        <div><label for="f_location">Location</label><input id="f_location" placeholder="e.g. Delhi"></div>
+        <div><label for="f_owner">Owner</label><input id="f_owner" placeholder="Your name"></div>
+        <div><label for="f_status">Status</label>
+          <select id="f_status"><option>Live</option><option>Pilot</option><option>Prototype</option></select></div>
+      </div>
+      <label for="f_tags">Tags (comma separated)</label><input id="f_tags" placeholder="customer-queries, chat-support, faq">
+      <label for="f_impact">Impact</label><input id="f_impact" placeholder="e.g. Answers common questions instantly">
+      <div class="two">
+        <div><label for="f_repo">GitHub link</label><input id="f_repo"></div>
+        <div><label for="f_demo">Live app link</label><input id="f_demo"></div>
+      </div>
+      <label for="f_hoursSavedPerMonth">Hours saved per month (optional)</label><input id="f_hoursSavedPerMonth" type="number" min="0">
+      <label class="check"><input type="checkbox" id="f_builtByMe" checked> Show "Built by me" badge</label>
+      <button class="btn" id="saveBtn">Save</button> <button class="ghost" id="clearBtn">Clear form</button>
+      <div class="msg" id="saveMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your entries (<span id="count">0</span>)</h2>
+      <div id="list"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const F = ["id","name","description","team","location","owner","status","tags","impact","hoursSavedPerMonth","repo","demo"];
+let PW = sessionStorage.getItem("hubpw") || "", ITEMS = [];
+
+async function api(action, data = {}) {
+  const r = await fetch("/api/admin", { method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-password": PW },
+    body: JSON.stringify({ action, ...data }) });
+  const d = await r.json().catch(() => ({ error: "Unexpected server reply. Please try again." }));
+  if (!r.ok) throw new Error(d.error || "Something went wrong.");
+  return d;
+}
+function msg(sel, text, isErr) { $(sel).innerHTML = text ? `<span class="${isErr ? "error" : "ok"}">${esc(text)}</span>` : ""; }
+function setForm(a = {}) {
+  F.forEach(k => { let v = a[k] ?? ""; if (k === "tags" && Array.isArray(v)) v = v.join(", "); if (k === "status" && !v) v = "Live"; $("#f_" + k).value = v; });
+  $("#f_builtByMe").checked = a.builtByMe !== false;
+  $("#formTitle").textContent = a.id ? "Edit entry" : "2. Check the details and save";
+}
+function getForm() { const a = {}; F.forEach(k => a[k] = $("#f_" + k).value); a.builtByMe = $("#f_builtByMe").checked; return a; }
+const keepWho = () => ({ location: $("#f_location").value, owner: $("#f_owner").value });
+
+async function login() {
+  if ($("#pw").value) PW = $("#pw").value;
+  try {
+    const d = await api("list");
+    sessionStorage.setItem("hubpw", PW);
+    $("#login").classList.add("hidden"); $("#main").classList.remove("hidden");
+    $("#setup").classList.toggle("hidden", d.storeReady);
+    ITEMS = d.items; renderList();
+  } catch (e) { sessionStorage.removeItem("hubpw"); msg("#loginMsg", e.message, true); }
+}
+$("#loginBtn").onclick = login;
+$("#pw").onkeydown = e => { if (e.key === "Enter") login(); };
+if (PW) login();
+$("#logout").onclick = e => { e.preventDefault(); sessionStorage.removeItem("hubpw"); location.reload(); };
+
+$("#fillBtn").onclick = async () => {
+  const url = $("#a_url").value.trim(), notes = $("#a_notes").value.trim();
+  if (!url && !notes) return msg("#fillMsg", "Paste a link or write a few notes first.", true);
+  $("#fillBtn").disabled = true; msg("#fillMsg", "Reading the app and filling in details… this takes 10–30 seconds.");
+  try {
+    const d = await api("autofill", { url, notes });
+    setForm({ ...d.draft, ...keepWho() });
+    msg("#fillMsg", "Done. Check the details below, edit anything, then click Save.");
+    $("#formCard").scrollIntoView({ behavior: "smooth" });
+  } catch (e) { msg("#fillMsg", e.message, true); }
+  finally { $("#fillBtn").disabled = false; }
+};
+
+$("#saveBtn").onclick = async () => {
+  const a = getForm();
+  a.tags = a.tags.split(",").map(t => t.trim()).filter(Boolean);
+  $("#saveBtn").disabled = true;
+  try {
+    const d = await api("save", { item: a });
+    ITEMS = d.items; renderList();
+    setForm(keepWho()); $("#a_url").value = ""; $("#a_notes").value = ""; msg("#fillMsg", "");
+    msg("#saveMsg", `Saved "${d.item.name}". It's live on your site now.`);
+  } catch (e) { msg("#saveMsg", e.message, true); }
+  finally { $("#saveBtn").disabled = false; }
+};
+$("#clearBtn").onclick = () => { setForm(keepWho()); msg("#saveMsg", ""); };
+
+function renderList() {
+  $("#count").textContent = ITEMS.length;
+  $("#list").innerHTML = ITEMS.length ? ITEMS.map(a => `<div class="item">
+    <div><b>${esc(a.name)}</b> ${a.builtByMe ? '<span class="badge">Built by me</span>' : ""}
+      <div class="meta">${esc(a.team)} · ${esc(a.location)} · ${esc((a.tags || []).join(", "))}</div></div>
+    <div class="actions"><button class="ghost" data-edit="${esc(a.id)}">Edit</button><button class="ghost danger" data-del="${esc(a.id)}">Delete</button></div>
+  </div>`).join("") : '<p class="meta">Nothing added yet. Paste your first link above.</p>';
+}
+$("#list").onclick = async e => {
+  const ed = e.target.dataset.edit, del = e.target.dataset.del;
+  if (ed) { setForm(ITEMS.find(x => x.id === ed)); $("#formCard").scrollIntoView({ behavior: "smooth" }); msg("#saveMsg", ""); }
+  if (del) {
+    const it = ITEMS.find(x => x.id === del);
+    if (!confirm(`Delete "${it?.name}"?`)) return;
+    try { const d = await api("delete", { id: del }); ITEMS = d.items; renderList(); } catch (err) { alert(err.message); }
+  }
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Reuse Hub · Analyze your app</title>
+<style>
+:root{--bg:#0f1117;--panel:#171a23;--line:#262b38;--text:#e8eaf0;--muted:#9aa1b2;--accent:#5b8cff;--good:#33c48d;--warn:#f0b44c;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+.wrap{max-width:900px;margin:0 auto;padding:24px 20px 60px}
+nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:36px}
+nav b{font-size:17px}
+nav a{color:var(--muted);text-decoration:none;margin-left:18px;font-size:14px}
+nav a.on{color:var(--text)}
+h1{font-size:32px;line-height:1.2;margin:0 0 8px}
+.lead{color:var(--muted);margin:0 0 24px;font-size:17px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
+input,textarea{width:100%;background:#11141c;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-size:15px;font-family:inherit}
+textarea{min-height:80px;resize:vertical}
+.row{margin-bottom:14px}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:11px 20px;font-size:15px;cursor:pointer}
+.btn:disabled{opacity:.6;cursor:wait}
+.examples{margin-top:12px;font-size:13px;color:var(--muted)}
+.examples button{background:#222838;color:#c9d2ea;border:0;border-radius:999px;padding:4px 10px;margin:4px 6px 0 0;cursor:pointer;font-size:12px}
+#status{color:var(--muted);margin:16px 0}
+.error{color:var(--bad)}
+.meta{color:var(--muted);font-size:13px}
+h2{margin:6px 0 4px}
+h3{margin:8px 0 8px;font-size:18px}
+h4{margin:14px 0 6px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 20px}
+ul,ol{margin:0;padding-left:20px}
+.sec{margin:28px 0 12px;font-size:20px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:12px;padding:2px 9px;border-radius:999px;background:#222838;color:#c9d2ea}
+.tag.reuse{background:rgba(51,196,141,.15);color:var(--good)}
+.tag.lib{background:rgba(91,140,255,.18);color:var(--accent)}
+.tag.new{background:rgba(240,180,76,.14);color:var(--warn)}
+.reuse-box{background:rgba(51,196,141,.08);border:1px solid rgba(51,196,141,.25);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14px}
+p{margin:6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><b>Agent Reuse Hub</b><div><a href="/" class="on">Analyze an app</a><a href="/registry.html">Agent registry</a></div></nav>
+
+  <h1>Share your app. Find the AI use cases that would make it better.</h1>
+  <p class="lead">Paste a website or GitHub link. The hub reads your app, understands what it does, and matches it against proven AI use cases and agents already built elsewhere.</p>
+
+  <div class="card">
+    <div class="row"><label for="url">App link or GitHub repo</label>
+      <input id="url" placeholder="https://your-app.vercel.app  or  https://github.com/you/repo"></div>
+    <div class="row"><label for="desc">What does it do and who uses it? (optional, helps a lot)</label>
+      <textarea id="desc" placeholder="e.g. A booking app for small salons. Customers pick a slot, pay online and get WhatsApp reminders."></textarea></div>
+    <button class="btn" id="go">Analyze my app</button>
+    <div class="examples">Or try an example:
+      <button data-ex="0">College canteen ordering app</button>
+      <button data-ex="1">Dental clinic booking site</button>
+    </div>
+  </div>
+
+  <div id="status"></div>
+  <div id="results"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ul = arr => Array.isArray(arr) && arr.length ? `<ul>${arr.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="meta">Not clear from the app.</p>';
+
+const EXAMPLES = [
+  "A food ordering app for college canteens. Students browse the daily menu, pre-order, pay by UPI and get notified when food is ready. Canteen staff see a live orders dashboard and update stock by hand.",
+  "A website for a small dental clinic in Delhi with doctor profiles, a treatment price list, an appointment booking form, a WhatsApp contact button and patient reviews."
+];
+document.querySelectorAll("[data-ex]").forEach(b => b.onclick = () => {
+  $("#url").value = ""; $("#desc").value = EXAMPLES[+b.dataset.ex]; run();
+});
+$("#go").onclick = run;
+$("#url").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
+
+const STEPS = ["Opening your app…", "Reading pages and features…", "Comparing with the use-case library…", "Ranking recommendations…"];
+
+async function run() {
+  const url = $("#url").value.trim(), description = $("#desc").value.trim();
+  if (!url && !description) { $("#status").innerHTML = '<span class="error">Paste a link or describe your app first.</span>'; return; }
+  $("#go").disabled = true; $("#results").innerHTML = "";
+  let i = 0; $("#status").textContent = STEPS[0];
+  const timer = setInterval(() => { i = Math.min(i + 1, STEPS.length - 1); $("#status").textContent = STEPS[i]; }, 3500);
+  try {
+    const r = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, description }) });
+    const d = await r.json().catch(() => ({ error: "The server took too long or sent an unexpected reply. Please try again." }));
+    if (!r.ok) throw new Error(d.error || "Something went wrong.");
+    $("#status").textContent = "";
+    render(d);
+  } catch (e) {
+    $("#status").innerHTML = `<span class="error">${esc(e.message)}</span>`;
+  } finally { clearInterval(timer); $("#go").disabled = false; }
+}
+
+function render(d) {
+  const p = d.appProfile || {};
+  const src = { github: "Read from GitHub", website: "Read from website", description: "From your description" }[d.input?.sourceType] || "";
+  let h = `<div class="card">
+    <div class="meta">${src}${d.warning ? " · " + esc(d.warning) : ""}</div>
+    <h2>${esc(p.name || d.input?.title || "Your app")}</h2>
+    <p>${esc(p.oneLiner)}</p>
+    <div class="cols">
+      <div><h4>Who uses it</h4><p>${esc(p.audience || "Not clear")}</p></div>
+      <div><h4>Core workflows</h4>${ul(p.coreWorkflows)}</div>
+      <div><h4>Likely pain points</h4>${ul(p.likelyPainPoints)}</div>
+    </div>
+    <p class="meta" style="margin-top:12px">Confidence: ${esc(d.confidence)}${d.confidenceNote ? " · " + esc(d.confidenceNote) : ""}</p>
+  </div>`;
+  const TYPE = { "reuse-agent": ["Reuse existing agent", "reuse"], "library-use-case": ["Proven use case", "lib"], "new-idea": ["New idea", "new"] };
+  h += `<h3 class="sec">Recommendations</h3>`;
+  h += (d.recommendations || []).map((r, i) => {
+    const [label, cls] = TYPE[r.type] || ["Use case", "lib"];
+    const reuse = r.libraryItem && r.libraryItem.source === "registry"
+      ? `<div class="reuse-box">♻ Already built: <b>${esc(r.libraryItem.name)}</b> · ${esc(r.libraryItem.category)} · owner ${esc(r.libraryItem.owner)}. Reuse it instead of building from scratch.</div>` : "";
+    return `<div class="card">
+      <div class="tags"><span class="tag ${cls}">${label}</span><span class="tag">Impact: ${esc(r.impact)}</span><span class="tag">Effort: ${esc(r.effort)}</span></div>
+      <h3>${i + 1}. ${esc(r.title)}</h3>
+      <p><b>Improves:</b> ${esc(r.improves)}</p>
+      <p><b>Why it fits:</b> ${esc(r.why)}</p>
+      <p><b>Expected outcome:</b> ${esc(r.expectedOutcome)}</p>
+      ${reuse}
+      <h4>First steps</h4><ol>${(r.firstSteps || []).map(s => `<li>${esc(s)}</li>`).join("")}</ol>
+    </div>`;
+  }).join("") || '<p class="meta">No recommendations came back. Try adding a description.</p>';
+  h += `<p class="meta">Analysis by ${esc(d.model)}. Recommendations are AI-generated, so review them before acting.</p>`;
+  $("#results").innerHTML = h;
+}
+</script>
+</body>
+</html>
