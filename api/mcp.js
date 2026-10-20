@@ -1,21 +1,26 @@
 import { company, processes, listAgents, getAgent, findOpportunities, findAgentsForNeed } from "../lib/core.js";
 import { getLibrary } from "../lib/usecases.js";
 import { analyzeApp, contextForClient } from "../lib/analyzer.js";
+import { searchMcp } from "../lib/mcpregistry.js";
 import { syncAgents } from "../lib/store.js";
 
 const SUPPORTED = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const TOOLS = [
   { name: "analyze_app",
-    description: "Analyze an app from its website link, GitHub link, or a description, and recommend AI use cases and existing agents that would improve it.",
+    description: "Analyze an app from its website link, GitHub link, or a description, and recommend AI use cases, existing agents, and real public MCP servers that would improve it.",
     inputSchema: { type: "object", properties: {
       url: { type: "string", description: "App website or GitHub repo link" },
       description: { type: "string", description: "Optional: what the app does and who uses it" } } } },
+  { name: "search_public_mcp_servers",
+    description: "Search the official public MCP Registry for real, existing MCP servers by keyword (e.g. whatsapp, postgres, calendar). Use this before suggesting building something new.",
+    inputSchema: { type: "object", properties: {
+      query: { type: "string" }, limit: { type: "number", description: "Max results, default 10" } }, required: ["query"] } },
   { name: "list_use_case_library",
-    description: "List all proven AI use cases and existing agents the analyzer can recommend.",
+    description: "List all proven AI use cases and registered agents the analyzer can recommend.",
     inputSchema: { type: "object", properties: {} } },
   { name: "list_agents",
-    description: "List the AI agents in the company registry. Optionally filter by team or location (city).",
+    description: "List the AI agents in the registry. Optionally filter by team or location (city).",
     inputSchema: { type: "object", properties: { team: { type: "string" }, location: { type: "string" } } } },
   { name: "get_agent",
     description: "Get full details for one agent by id, including where else it could be reused.",
@@ -29,7 +34,7 @@ const TOOLS = [
     description: "Describe a business problem in plain words and get existing agents that could help.",
     inputSchema: { type: "object", properties: { need: { type: "string" }, location: { type: "string" } }, required: ["need"] } },
   { name: "list_sites_and_processes",
-    description: "List the company's sites and the business processes that are not yet automated.",
+    description: "List the sites and business processes that are not yet automated.",
     inputSchema: { type: "object", properties: {} } }
 ];
 
@@ -42,6 +47,11 @@ async function callTool(name, args = {}) {
       try {
         return text(process.env.GEMINI_API_KEY ? await analyzeApp(args) : await contextForClient(args));
       } catch (e) { return fail(`Analysis failed: ${e.message}`); }
+    case "search_public_mcp_servers":
+      try {
+        const list = await searchMcp(args.query || "", Math.min(Number(args.limit) || 10, 30));
+        return text({ query: args.query, count: list.length, servers: list });
+      } catch (e) { return fail(`Registry search failed: ${e.message}`); }
     case "list_use_case_library": return text(getLibrary());
     case "list_agents": return text(listAgents(args));
     case "get_agent": {
@@ -66,8 +76,8 @@ async function handleMessage(msg) {
       return ok({
         protocolVersion: SUPPORTED.includes(params?.protocolVersion) ? params.protocolVersion : "2025-06-18",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "agent-reuse-hub", version: "2.0.0" },
-        instructions: "Use analyze_app when the user shares an app link or describes an app and wants ideas to improve it with AI. Use the registry tools to find and reuse existing agents."
+        serverInfo: { name: "agent-reuse-hub", version: "3.0.0" },
+        instructions: "Use analyze_app when the user shares an app link or describes an app and wants ideas to improve it with AI. Use search_public_mcp_servers to find real existing MCP servers before suggesting a new build. Use the registry tools to find and reuse registered agents."
       });
     case "ping": return ok({});
     case "tools/list": return ok({ tools: TOOLS });

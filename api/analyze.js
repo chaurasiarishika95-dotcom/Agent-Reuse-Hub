@@ -1,5 +1,5 @@
 import { analyzeApp } from "../lib/analyzer.js";
-import { syncAgents } from "../lib/store.js";
+import { syncAgents, recordAnalysis } from "../lib/store.js";
 
 const hits = new Map();
 function limited(ip) {
@@ -18,6 +18,10 @@ export default async function handler(req, res) {
     await syncAgents();
     const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
     const result = await analyzeApp({ url: body.url, description: body.description });
+    result.analysisId = await recordAnalysis({
+      url: result.input.url, title: result.appProfile?.name || result.input.title || "",
+      sourceType: result.input.sourceType, recommendations: result.recommendations.length
+    });
     return res.status(200).json(result);
   } catch (e) {
     return res.status(e.status || 500).json({ error: e.message || "Something went wrong." });

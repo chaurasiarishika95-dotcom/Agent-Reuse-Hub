@@ -1,5 +1,8 @@
 import { autofill } from "../lib/autofill.js";
-import { getCustom, saveCustom, storeReady } from "../lib/store.js";
+import {
+  getCustom, saveCustom, storeReady, getSettings, saveSettings,
+  getStats, recentFeedback, recentAnalyses
+} from "../lib/store.js";
 
 const clean = (s, n = 300) => String(s ?? "").trim().slice(0, n);
 const okUrl = s => { s = clean(s, 500); return /^https?:\/\//i.test(s) ? s : ""; };
@@ -29,8 +32,12 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
     switch (body.action) {
-      case "list":
-        return res.status(200).json({ items: await getCustom(), storeReady: storeReady() });
+      case "list": {
+        const [items, settings, stats, feedback, analyses] = await Promise.all([
+          getCustom(), getSettings(), getStats(), recentFeedback(15), recentAnalyses(15)
+        ]);
+        return res.status(200).json({ items, storeReady: storeReady(), settings, stats, feedback, analyses });
+      }
       case "autofill":
         return res.status(200).json({ draft: await autofill({ url: body.url, notes: body.notes }) });
       case "save": {
@@ -47,6 +54,10 @@ export default async function handler(req, res) {
         const list = (await getCustom()).filter(x => x.id !== body.id);
         await saveCustom(list);
         return res.status(200).json({ items: list });
+      }
+      case "saveSettings": {
+        const settings = await saveSettings({ demoData: body.settings?.demoData !== false });
+        return res.status(200).json({ settings });
       }
       default:
         return res.status(400).json({ error: "Unknown action." });
