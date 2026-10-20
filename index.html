@@ -14,7 +14,8 @@ nav b{font-size:17px}
 nav a{color:var(--muted);text-decoration:none;margin-left:18px;font-size:14px}
 nav a.on{color:var(--text)}
 h1{font-size:32px;line-height:1.2;margin:0 0 8px}
-.lead{color:var(--muted);margin:0 0 24px;font-size:17px}
+.lead{color:var(--muted);margin:0 0 10px;font-size:17px}
+#stats{color:var(--good);font-size:14px;margin:0 0 22px;min-height:20px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
 label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
 input,textarea{width:100%;background:#11141c;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-size:15px;font-family:inherit}
@@ -39,15 +40,24 @@ ul,ol{margin:0;padding-left:20px}
 .tag.lib{background:rgba(91,140,255,.18);color:var(--accent)}
 .tag.new{background:rgba(240,180,76,.14);color:var(--warn)}
 .reuse-box{background:rgba(51,196,141,.08);border:1px solid rgba(51,196,141,.25);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14px}
+.mcp{background:#11141c;border:1px solid var(--line);border-radius:10px;padding:4px 14px 12px;margin-top:12px}
+.srv{padding:8px 0;border-top:1px solid var(--line)}
+.srv:first-of-type{border-top:0}
+.srv a{color:var(--accent);font-weight:600;text-decoration:none}
+code{background:#222838;padding:1px 6px;border-radius:6px;font-size:12px}
+.fb{margin-top:14px;font-size:14px;color:var(--muted)}
+.fb button{background:#222838;border:0;border-radius:8px;padding:4px 10px;margin-left:6px;cursor:pointer;font-size:16px}
 p{margin:6px 0}
+footer{margin-top:36px;color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <nav><b>Agent Reuse Hub</b><div><a href="/" class="on">Analyze an app</a><a href="/registry.html">Agent registry</a></div></nav>
+  <nav><b>Agent Reuse Hub</b><div><a href="/" class="on">Analyze an app</a><a href="/registry.html">Registry</a></div></nav>
 
-  <h1>Share your app. Find the AI use cases that would make it better.</h1>
-  <p class="lead">Paste a website or GitHub link. The hub reads your app, understands what it does, and matches it against proven AI use cases and agents already built elsewhere.</p>
+  <h1>Share your app. Find the AI features it's missing, and what already exists so you don't rebuild it.</h1>
+  <p class="lead">Paste a website or GitHub link. The hub reads your app, recommends AI use cases, and finds real, existing MCP servers from the official MCP Registry that you could reuse.</p>
+  <p id="stats"></p>
 
   <div class="card">
     <div class="row"><label for="url">App link or GitHub repo</label>
@@ -63,12 +73,24 @@ p{margin:6px 0}
 
   <div id="status"></div>
   <div id="results"></div>
+
+  <footer>To measure whether recommendations are useful, the hub stores each analyzed link, the app's name, and any 👍/👎 votes. Nothing else is collected.</footer>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const ul = arr => Array.isArray(arr) && arr.length ? `<ul>${arr.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="meta">Not clear from the app.</p>';
+let LAST = null;
+
+function loadStats() {
+  fetch("/api/stats").then(r => r.json()).then(s => {
+    if (!s.analyses) return;
+    $("#stats").textContent = `${s.analyses} app${s.analyses === 1 ? "" : "s"} analyzed so far` +
+      (s.usefulPct !== null ? ` · ${s.usefulPct}% of rated recommendations found useful (${s.up + s.down} ratings)` : "");
+  }).catch(() => {});
+}
+loadStats();
 
 const EXAMPLES = [
   "A food ordering app for college canteens. Students browse the daily menu, pre-order, pay by UPI and get notified when food is ready. Canteen staff see a live orders dashboard and update stock by hand.",
@@ -80,26 +102,37 @@ document.querySelectorAll("[data-ex]").forEach(b => b.onclick = () => {
 $("#go").onclick = run;
 $("#url").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
 
-const STEPS = ["Opening your app…", "Reading pages and features…", "Comparing with the use-case library…", "Ranking recommendations…"];
+const STEPS = ["Opening your app…", "Reading pages and features…", "Comparing with the use-case library…", "Searching the public MCP Registry…", "Ranking recommendations…"];
 
 async function run() {
   const url = $("#url").value.trim(), description = $("#desc").value.trim();
   if (!url && !description) { $("#status").innerHTML = '<span class="error">Paste a link or describe your app first.</span>'; return; }
   $("#go").disabled = true; $("#results").innerHTML = "";
   let i = 0; $("#status").textContent = STEPS[0];
-  const timer = setInterval(() => { i = Math.min(i + 1, STEPS.length - 1); $("#status").textContent = STEPS[i]; }, 3500);
+  const timer = setInterval(() => { i = Math.min(i + 1, STEPS.length - 1); $("#status").textContent = STEPS[i]; }, 4000);
   try {
     const r = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, description }) });
     const d = await r.json().catch(() => ({ error: "The server took too long or sent an unexpected reply. Please try again." }));
     if (!r.ok) throw new Error(d.error || "Something went wrong.");
     $("#status").textContent = "";
-    render(d);
+    render(d); loadStats();
   } catch (e) {
     $("#status").innerHTML = `<span class="error">${esc(e.message)}</span>`;
   } finally { clearInterval(timer); $("#go").disabled = false; }
 }
 
+function serversHtml(list) {
+  if (!Array.isArray(list) || !list.length) return "";
+  return `<div class="mcp"><h4>Existing MCP servers you could reuse</h4>${list.map(s => `<div class="srv">
+      <a href="${esc(s.link)}" target="_blank" rel="noopener">${esc(s.title || s.name)}</a> <span class="meta">${esc(s.name)}</span>
+      ${s.description ? `<div class="meta">${esc(s.description)}</div>` : ""}
+      ${s.install ? `<div class="meta">Install: <code>${esc(s.install)}</code></div>` : ""}
+    </div>`).join("")}
+    <div class="meta" style="margin-top:6px">From the official MCP Registry, matched by keyword. Check each one before using it.</div></div>`;
+}
+
 function render(d) {
+  LAST = d;
   const p = d.appProfile || {};
   const src = { github: "Read from GitHub", website: "Read from website", description: "From your description" }[d.input?.sourceType] || "";
   let h = `<div class="card">
@@ -115,10 +148,14 @@ function render(d) {
   </div>`;
   const TYPE = { "reuse-agent": ["Reuse existing agent", "reuse"], "library-use-case": ["Proven use case", "lib"], "new-idea": ["New idea", "new"] };
   h += `<h3 class="sec">Recommendations</h3>`;
+  if (d.mcpNote) h += `<p class="meta">${esc(d.mcpNote)}</p>`;
   h += (d.recommendations || []).map((r, i) => {
     const [label, cls] = TYPE[r.type] || ["Use case", "lib"];
     const reuse = r.libraryItem && r.libraryItem.source === "registry"
       ? `<div class="reuse-box">♻ Already built: <b>${esc(r.libraryItem.name)}</b> · ${esc(r.libraryItem.category)} · owner ${esc(r.libraryItem.owner)}. Reuse it instead of building from scratch.</div>` : "";
+    const voted = d.analysisId && localStorage.getItem(`fb:${d.analysisId}:${i}`);
+    const fb = d.analysisId ? `<div class="fb" data-i="${i}">${voted ? "Thanks for the feedback!" :
+      'Was this recommendation useful? <button data-v="up" aria-label="Useful">👍</button><button data-v="down" aria-label="Not useful">👎</button>'}</div>` : "";
     return `<div class="card">
       <div class="tags"><span class="tag ${cls}">${label}</span><span class="tag">Impact: ${esc(r.impact)}</span><span class="tag">Effort: ${esc(r.effort)}</span></div>
       <h3>${i + 1}. ${esc(r.title)}</h3>
@@ -126,12 +163,25 @@ function render(d) {
       <p><b>Why it fits:</b> ${esc(r.why)}</p>
       <p><b>Expected outcome:</b> ${esc(r.expectedOutcome)}</p>
       ${reuse}
+      ${serversHtml(r.mcpServers)}
       <h4>First steps</h4><ol>${(r.firstSteps || []).map(s => `<li>${esc(s)}</li>`).join("")}</ol>
+      ${fb}
     </div>`;
   }).join("") || '<p class="meta">No recommendations came back. Try adding a description.</p>';
   h += `<p class="meta">Analysis by ${esc(d.model)}. Recommendations are AI-generated, so review them before acting.</p>`;
   $("#results").innerHTML = h;
 }
+
+$("#results").addEventListener("click", e => {
+  const b = e.target.closest("button[data-v]");
+  if (!b || !LAST) return;
+  const box = b.closest(".fb"), i = +box.dataset.i, r = LAST.recommendations[i];
+  box.textContent = "Thanks for the feedback!";
+  localStorage.setItem(`fb:${LAST.analysisId}:${i}`, "1");
+  fetch("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vote: b.dataset.v, analysisId: LAST.analysisId, title: r.title, type: r.type,
+      app: LAST.appProfile?.name || LAST.input?.url || "" }) }).then(loadStats).catch(() => {});
+});
 </script>
 </body>
 </html>

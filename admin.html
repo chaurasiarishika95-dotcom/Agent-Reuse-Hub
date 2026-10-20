@@ -14,6 +14,7 @@ nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:
 nav a{color:var(--muted);text-decoration:none;margin-left:16px;font-size:14px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px}
 h2{margin:0 0 12px;font-size:19px}
+h4{margin:16px 0 4px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 label{display:block;font-size:13px;color:var(--muted);margin:10px 0 5px}
 input,textarea,select{width:100%;background:#11141c;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:15px;font-family:inherit}
 textarea{min-height:70px;resize:vertical}
@@ -22,18 +23,21 @@ textarea{min-height:70px;resize:vertical}
 .btn:disabled{opacity:.6;cursor:wait}
 .ghost{background:none;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
 .danger{color:var(--bad)}
-.check{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px}
+.check{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:14px;color:var(--text)}
 .check input{width:auto}
 .meta{color:var(--muted);font-size:13px}
 .error{color:var(--bad)}
 .ok{color:var(--good)}
 .msg{margin-top:10px;font-size:14px}
 .hidden{display:none}
-.item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .item:first-child{border-top:0}
 .actions{display:flex;gap:8px;flex-shrink:0}
 .badge{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(91,140,255,.18);color:var(--accent)}
 .setup{border-color:rgba(240,180,76,.4);color:var(--warn)}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.big div{background:#11141c;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.big b{display:block;font-size:22px}
 @media (max-width:600px){.two{grid-template-columns:1fr}}
 </style>
 </head>
@@ -50,6 +54,21 @@ textarea{min-height:70px;resize:vertical}
 
   <div id="main" class="hidden">
     <div class="card setup hidden" id="setup">Storage isn't connected yet, so saving won't work. In Vercel, open <b>Storage</b>, create an <b>Upstash for Redis</b> database, connect it to this project, then redeploy.</div>
+
+    <div class="card">
+      <h2>Real usage</h2>
+      <div class="big" id="usage"></div>
+      <h4>Latest feedback</h4><div id="fbList"></div>
+      <h4>Latest analyses</h4><div id="anList"></div>
+    </div>
+
+    <div class="card">
+      <h2>Settings</h2>
+      <label class="check"><input type="checkbox" id="s_demo"> Show demo data (fictional SwiftRoute Logistics company)</label>
+      <p class="meta">Turn this off once you've added enough real entries. Your own entries always stay.</p>
+      <button class="btn" id="s_save">Save settings</button>
+      <div class="msg" id="s_msg"></div>
+    </div>
 
     <div class="card">
       <h2>1. Paste a link</h2>
@@ -95,6 +114,7 @@ textarea{min-height:70px;resize:vertical}
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const when = t => { try { return new Date(t).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }); } catch { return ""; } };
 const F = ["id","name","description","team","location","owner","status","tags","impact","hoursSavedPerMonth","repo","demo"];
 let PW = sessionStorage.getItem("hubpw") || "", ITEMS = [];
 
@@ -115,6 +135,18 @@ function setForm(a = {}) {
 function getForm() { const a = {}; F.forEach(k => a[k] = $("#f_" + k).value); a.builtByMe = $("#f_builtByMe").checked; return a; }
 const keepWho = () => ({ location: $("#f_location").value, owner: $("#f_owner").value });
 
+function renderUsage(d) {
+  const s = d.stats || {};
+  $("#usage").innerHTML = [
+    [s.analyses || 0, "Apps analyzed"], [s.up || 0, "👍 Useful"], [s.down || 0, "👎 Not useful"],
+    [s.usefulPct === null || s.usefulPct === undefined ? "–" : s.usefulPct + "%", "Rated useful"]
+  ].map(([n, l]) => `<div><b>${n}</b><span class="meta">${l}</span></div>`).join("");
+  $("#fbList").innerHTML = (d.feedback || []).map(f => `<div class="item"><div>${f.vote === "up" ? "👍" : "👎"} ${esc(f.title)}
+    <div class="meta">${esc(f.app)} · ${esc(when(f.at))}</div></div></div>`).join("") || '<p class="meta">No feedback yet.</p>';
+  $("#anList").innerHTML = (d.analyses || []).map(a => `<div class="item"><div>${esc(a.title || a.url || "Described app")}
+    <div class="meta">${a.url ? esc(a.url) + " · " : ""}${esc(when(a.at))}</div></div></div>`).join("") || '<p class="meta">No analyses yet.</p>';
+}
+
 async function login() {
   if ($("#pw").value) PW = $("#pw").value;
   try {
@@ -122,13 +154,21 @@ async function login() {
     sessionStorage.setItem("hubpw", PW);
     $("#login").classList.add("hidden"); $("#main").classList.remove("hidden");
     $("#setup").classList.toggle("hidden", d.storeReady);
-    ITEMS = d.items; renderList();
+    $("#s_demo").checked = d.settings?.demoData !== false;
+    ITEMS = d.items; renderList(); renderUsage(d);
   } catch (e) { sessionStorage.removeItem("hubpw"); msg("#loginMsg", e.message, true); }
 }
 $("#loginBtn").onclick = login;
 $("#pw").onkeydown = e => { if (e.key === "Enter") login(); };
 if (PW) login();
 $("#logout").onclick = e => { e.preventDefault(); sessionStorage.removeItem("hubpw"); location.reload(); };
+
+$("#s_save").onclick = async () => {
+  try {
+    const d = await api("saveSettings", { settings: { demoData: $("#s_demo").checked } });
+    msg("#s_msg", d.settings.demoData ? "Saved. Demo data is visible." : "Saved. Demo data is hidden; only real entries show now.");
+  } catch (e) { msg("#s_msg", e.message, true); }
+};
 
 $("#fillBtn").onclick = async () => {
   const url = $("#a_url").value.trim(), notes = $("#a_notes").value.trim();

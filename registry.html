@@ -30,6 +30,7 @@ select,input{background:var(--panel);color:var(--text);border:1px solid var(--li
 .chip{font-size:12px;padding:2px 8px;border-radius:999px;background:#222838;color:#c9d2ea}
 .chip.match{background:rgba(51,196,141,.15);color:var(--good)}
 .chip.gap{background:rgba(240,180,76,.12);color:var(--warn)}
+.chipbtn{background:#222838;color:#c9d2ea;border:0;border-radius:999px;padding:4px 10px;margin:4px 6px 0 0;cursor:pointer;font-size:12px}
 .badge{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(91,140,255,.18);color:var(--accent);margin-left:6px;vertical-align:middle}
 .impact{margin-top:10px;font-size:14px;color:var(--good)}
 .opp{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center}
@@ -37,7 +38,7 @@ select,input{background:var(--panel);color:var(--text);border:1px solid var(--li
 .bar{height:6px;background:#222838;border-radius:4px;overflow:hidden;margin-top:12px}
 .bar i{display:block;height:100%;background:var(--good)}
 a{color:var(--accent)}
-code{background:#222838;padding:2px 6px;border-radius:6px}
+code{background:#222838;padding:2px 6px;border-radius:6px;font-size:12px}
 .urlbox{display:flex;gap:8px;margin:12px 0}
 .urlbox input{flex:1}
 .btn{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
@@ -59,6 +60,7 @@ footer{margin-top:40px;color:var(--muted);font-size:13px}
     <button data-tab="registry" class="on">Agent registry</button>
     <button data-tab="opps">Reuse opportunities</button>
     <button data-tab="map">Network map</button>
+    <button data-tab="public">Public MCP servers</button>
     <button data-tab="connect">Connect via MCP</button>
   </nav>
 
@@ -74,7 +76,15 @@ footer{margin-top:40px;color:var(--muted);font-size:13px}
 
   <section id="map" class="hidden">
     <p class="meta">Left: agents already running. Right: processes at other sites that could reuse them. Hover over an agent to highlight its matches.</p>
+    <p class="meta hidden" id="mapEmpty">No reuse opportunities to map yet. Turn demo data on in the admin page to see how matching works.</p>
     <div class="card" style="overflow-x:auto"><svg id="net"></svg></div>
+  </section>
+
+  <section id="public" class="hidden">
+    <p class="meta">Real, publicly available MCP servers from the official MCP Registry. Search before you build, because something may already exist.</p>
+    <div class="filters"><input id="pq" placeholder="Search, e.g. whatsapp, calendar, postgres" style="flex:1;min-width:220px"><button class="btn" id="pgo">Search</button></div>
+    <div class="meta" id="pex" style="margin-bottom:14px"></div>
+    <div class="grid" id="pres"></div>
   </section>
 
   <section id="connect" class="hidden">
@@ -82,15 +92,15 @@ footer{margin-top:40px;color:var(--muted);font-size:13px}
       <h3>Use this registry from Claude or any MCP client</h3>
       <p class="meta">This site also runs an MCP server. Add this URL as a custom connector:</p>
       <div class="urlbox"><input id="mcpUrl" readonly><button class="btn" id="copy">Copy</button></div>
-      <p><b>Tools:</b> <code>analyze_app</code> <code>list_use_case_library</code> <code>list_agents</code> <code>get_agent</code> <code>find_reuse_opportunities</code> <code>find_agents_for_need</code> <code>list_sites_and_processes</code></p>
+      <p><b>Tools:</b> <code>analyze_app</code> <code>search_public_mcp_servers</code> <code>list_use_case_library</code> <code>list_agents</code> <code>get_agent</code> <code>find_reuse_opportunities</code> <code>find_agents_for_need</code> <code>list_sites_and_processes</code></p>
       <p><b>Try asking:</b></p>
       <p class="meta">"Here's my app link. How could AI make it better?"<br>
-      "What agents could we reuse at our Pune site?"<br>
-      "We check freight bills by hand and it takes days. Does anything already exist for that?"</p>
+      "Is there already an MCP server for WhatsApp messaging?"<br>
+      "What agents could we reuse at our Pune site?"</p>
     </div>
   </section>
 
-  <footer>Demo data for a fictional company, plus entries added through the admin page.</footer>
+  <footer id="foot"></footer>
 </div>
 
 <script>
@@ -101,7 +111,7 @@ let D;
 
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
-  ["registry","opps","map","connect"].forEach(id => $("#" + id).classList.toggle("hidden", id !== b.dataset.tab));
+  ["registry","opps","map","public","connect"].forEach(id => $("#" + id).classList.toggle("hidden", id !== b.dataset.tab));
 });
 
 function options(sel, label, vals) {
@@ -114,6 +124,9 @@ fetch("/api/data").then(r => r.json()).then(d => { D = d; init(); })
 function init() {
   $("#title").textContent = D.company.name + " · Agent Reuse Hub";
   $("#tagline").textContent = D.company.tagline;
+  $("#foot").textContent = D.demoData
+    ? "Includes demo data for a fictional company, plus entries added through the admin page. Public servers come from the official MCP Registry."
+    : "Live entries added through the admin page. Public servers come from the official MCP Registry.";
   const locs = uniq([...D.agents.map(a => a.location), ...D.processes.map(p => p.location)]);
   const teams = uniq(D.agents.map(a => a.team));
   const hrs = D.agents.reduce((s, a) => s + (a.hoursSavedPerMonth || 0), 0);
@@ -149,12 +162,15 @@ function renderAgents() {
         a.repo ? ` · <a href="${esc(a.repo)}" target="_blank" rel="noopener">View code</a>` : ""}${
         a.demo ? ` · <a href="${esc(a.demo)}" target="_blank" rel="noopener">Live demo</a>` : ""}</div>
     </div>`;
-  }).join("") || '<p class="meta">No agents match these filters.</p>';
+  }).join("") || '<p class="meta">No agents yet. Add your projects from the admin page.</p>';
 }
 
 function renderOpps() {
   const L = $("#oLoc").value;
   const list = D.opportunities.filter(o => !L || o.processLocation === L);
+  const empty = D.processes.length
+    ? "No reuse opportunities for this site yet."
+    : "Demo data is switched off, so there are no business needs to match against yet. Turn demo data on in the admin page to see how matching works.";
   $("#oppList").innerHTML = list.map(o => `<div class="card">
     <div class="opp">
       <div><div class="meta">Existing agent · ${esc(o.agentTeam)}, ${esc(o.agentLocation)}</div><h3>${esc(o.agentName)}</h3><div class="meta">Owner: ${esc(o.owner)}</div></div>
@@ -165,10 +181,14 @@ function renderOpps() {
     <div class="meta" style="margin-top:6px">${o.score}% of the needs are already covered</div>
     <div class="chips">${o.sharedSkills.map(s => `<span class="chip match">✓ ${esc(s)}</span>`).join("")}${
       o.missingSkills.map(s => `<span class="chip gap">to add: ${esc(s)}</span>`).join("")}</div>
-  </div>`).join("") || '<p class="meta">No reuse opportunities for this site yet.</p>';
+  </div>`).join("") || `<p class="meta">${empty}</p>`;
 }
 
 function renderMap() {
+  const has = D.opportunities.length > 0;
+  $("#mapEmpty").classList.toggle("hidden", has);
+  $("#net").parentElement.classList.toggle("hidden", !has);
+  if (!has) return;
   const A = D.agents.filter(a => D.opportunities.some(o => o.agentId === a.id));
   const P = D.processes.filter(p => D.opportunities.some(o => o.processId === p.id));
   const W = 900, rowH = 58, top = 30, bw = 250, xL = 10, xR = W - bw - 10;
@@ -197,6 +217,35 @@ function renderMap() {
     n.onmouseenter = () => { svg.classList.add("dim"); svg.querySelectorAll(`.link[data-a="${n.dataset.a}"]`).forEach(l => l.classList.add("hl")); };
     n.onmouseleave = () => { svg.classList.remove("dim"); svg.querySelectorAll(".link.hl").forEach(l => l.classList.remove("hl")); };
   });
+}
+
+// ----- Public MCP servers -----
+const PEX = ["whatsapp", "calendar", "postgres", "pdf", "stripe", "maps", "email", "slack"];
+$("#pex").innerHTML = "Try: " + PEX.map(x => `<button class="chipbtn" data-q="${x}">${x}</button>`).join("");
+$("#pex").onclick = e => { const q = e.target.dataset.q; if (q) { $("#pq").value = q; searchPublic(); } };
+$("#pgo").onclick = searchPublic;
+$("#pq").onkeydown = e => { if (e.key === "Enter") searchPublic(); };
+
+async function searchPublic() {
+  const q = $("#pq").value.trim();
+  if (q.length < 2) return;
+  $("#pres").innerHTML = '<p class="meta">Searching the MCP Registry…</p>';
+  try {
+    const r = await fetch("/api/mcp-search?q=" + encodeURIComponent(q));
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Search failed.");
+    $("#pres").innerHTML = d.servers.map(s => `<div class="card">
+      <h3>${esc(s.title || s.name)}</h3>
+      <div class="meta">${esc(s.name)}${s.version ? " · v" + esc(s.version) : ""}</div>
+      <p>${esc(s.description || "No description provided.")}</p>
+      ${s.install ? `<div class="meta">Install: <code>${esc(s.install)}</code></div>` : ""}
+      ${s.remoteUrl ? '<div class="meta">Hosted endpoint available</div>' : ""}
+      <div class="meta" style="margin-top:8px">${s.repo ? `<a href="${esc(s.repo)}" target="_blank" rel="noopener">Source code</a>` : ""}${
+        s.website ? `${s.repo ? " · " : ""}<a href="${esc(s.website)}" target="_blank" rel="noopener">Website</a>` : ""}</div>
+    </div>`).join("") || `<p class="meta">No public MCP servers found for "${esc(q)}". Try a product name like "slack" or "sheets".</p>`;
+  } catch (e) {
+    $("#pres").innerHTML = `<p class="meta">${esc(e.message)}</p>`;
+  }
 }
 </script>
 </body>
